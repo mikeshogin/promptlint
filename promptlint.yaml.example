@@ -1,0 +1,18 @@
+# promptlint routing configuration
+# Copy to ~/.promptlint.yaml or use --config flag
+
+models:
+  - name: haiku
+    tier: low
+    cost_weight: 1
+    max_complexity: 30
+
+  - name: sonnet
+    tier: standard
+    cost_weight: 10
+    max_complexity: 70
+
+  - name: opus
+    tier: high
+    cost_weight: 30
+    max_complexity: 100
