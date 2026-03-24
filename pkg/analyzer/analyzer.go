@@ -68,6 +68,7 @@ func countWords(s string) int {
 func classifyComplexity(r Result) string {
 	score := 0
 
+	// Length-based signals
 	if r.Words > 200 {
 		score += 2
 	} else if r.Words > 50 {
@@ -86,7 +87,7 @@ func classifyComplexity(r Result) string {
 		score++
 	}
 
-	// Multiple domains = more complex
+	// Multiple domains = cross-cutting concern = complex
 	activeDomains := 0
 	for _, v := range r.Domain {
 		if v > 0.3 {
@@ -95,10 +96,36 @@ func classifyComplexity(r Result) string {
 	}
 	if activeDomains > 2 {
 		score += 2
+	} else if activeDomains == 2 {
+		score++
+	}
+
+	// Architecture domain is inherently complex
+	if archScore, ok := r.Domain["architecture"]; ok && archScore > 0.5 {
+		score += 2
+	}
+
+	// Action type weight: design/refactor are harder than fix/explain
+	switch r.Action {
+	case "create":
+		score++
+	case "refactor":
+		score += 2
+	}
+
+	// High domain keyword density boosts complexity even for short prompts
+	maxDomainScore := 0.0
+	for _, v := range r.Domain {
+		if v > maxDomainScore {
+			maxDomainScore = v
+		}
+	}
+	if maxDomainScore >= 0.8 {
+		score++
 	}
 
 	switch {
-	case score >= 3:
+	case score >= 4:
 		return "high"
 	case score >= 2:
 		return "medium"
