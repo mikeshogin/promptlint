@@ -74,8 +74,8 @@ func main() {
 		} else {
 			switch format {
 			case "brief":
-				fmt.Printf("complexity=%s model=%s words=%d action=%s\n",
-					result.Complexity, result.SuggestedModel, result.Words, result.Action)
+				fmt.Printf("complexity=%s score=%d model=%s words=%d action=%s\n",
+					result.Complexity, result.ComplexityScore, result.SuggestedModel, result.Words, result.Action)
 			default:
 				out, _ := json.MarshalIndent(result, "", "  ")
 				fmt.Println(string(out))

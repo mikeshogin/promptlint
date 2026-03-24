@@ -4,6 +4,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/mikeshogin/promptlint/pkg/config"
 	"github.com/mikeshogin/promptlint/pkg/metrics"
 )
 
@@ -23,9 +24,10 @@ type Result struct {
 	Questions    int  `json:"questions"`
 
 	// Classification
-	Action     string             `json:"action"`
-	Domain     map[string]float64 `json:"domain"`
-	Complexity string             `json:"complexity"`
+	Action          string             `json:"action"`
+	Domain          map[string]float64 `json:"domain"`
+	Complexity      string             `json:"complexity"`
+	ComplexityScore int                `json:"complexity_score"`
 
 	// Routing suggestion
 	SuggestedModel string `json:"suggested_model"`
@@ -53,7 +55,8 @@ func Analyze(prompt string) Result {
 	// Classification
 	r.Action = metrics.DetectAction(prompt)
 	r.Domain = metrics.ClassifyDomain(prompt)
-	r.Complexity = classifyComplexity(r)
+	r.ComplexityScore = computeComplexityScore(prompt, r)
+	r.Complexity = classifyFromScore(r.ComplexityScore)
 
 	// Routing
 	r.SuggestedModel = suggestModel(r)
@@ -65,29 +68,78 @@ func countWords(s string) int {
 	return len(strings.Fields(s))
 }
 
-func classifyComplexity(r Result) string {
+// computeComplexityScore returns a numeric score 0-100 based on prompt signals.
+func computeComplexityScore(prompt string, r Result) int {
 	score := 0
 
-	// Length-based signals
-	if r.Words > 200 {
-		score += 2
-	} else if r.Words > 50 {
-		score++
+	// Length-based signals (0-15)
+	switch {
+	case r.Words > 200:
+		score += 15
+	case r.Words > 100:
+		score += 10
+	case r.Words > 50:
+		score += 5
 	}
 
+	// Sentence count (0-5)
 	if r.Sentences > 5 {
-		score++
+		score += 5
+	} else if r.Sentences > 3 {
+		score += 3
 	}
 
+	// Questions (0-5)
 	if r.Questions > 2 {
-		score++
+		score += 5
+	} else if r.Questions > 0 {
+		score += 2
 	}
 
+	// Code block presence (0-5)
 	if r.HasCodeBlock {
-		score++
+		score += 5
 	}
 
-	// Multiple domains = cross-cutting concern = complex
+	// Technical terms density (0-15)
+	techCount := metrics.CountTechnicalTerms(prompt)
+	switch {
+	case techCount >= 8:
+		score += 15
+	case techCount >= 4:
+		score += 10
+	case techCount >= 2:
+		score += 5
+	}
+
+	// Role/persona detection (0-10)
+	if metrics.HasRolePersona(prompt) {
+		score += 10
+	}
+
+	// Multi-step indicators (0-10)
+	steps := metrics.CountMultiStepIndicators(prompt)
+	switch {
+	case steps >= 4:
+		score += 10
+	case steps >= 2:
+		score += 6
+	case steps >= 1:
+		score += 3
+	}
+
+	// Constraint count (0-10)
+	constraints := metrics.CountConstraints(prompt)
+	switch {
+	case constraints >= 5:
+		score += 10
+	case constraints >= 3:
+		score += 7
+	case constraints >= 1:
+		score += 3
+	}
+
+	// Domain complexity (0-15)
 	activeDomains := 0
 	for _, v := range r.Domain {
 		if v > 0.3 {
@@ -95,39 +147,43 @@ func classifyComplexity(r Result) string {
 		}
 	}
 	if activeDomains > 2 {
-		score += 2
+		score += 10
 	} else if activeDomains == 2 {
-		score++
+		score += 5
 	}
 
-	// Architecture domain is inherently complex
 	if archScore, ok := r.Domain["architecture"]; ok && archScore > 0.5 {
-		score += 2
+		score += 5
 	}
 
-	// Action type weight: design/refactor are harder than fix/explain
+	// Action verb complexity (0-15)
 	switch r.Action {
-	case "create":
-		score++
+	case "design":
+		score += 15
 	case "refactor":
+		score += 12
+	case "review":
+		score += 8
+	case "create":
+		score += 5
+	case "fix", "explain":
 		score += 2
 	}
 
-	// High domain keyword density boosts complexity even for short prompts
-	maxDomainScore := 0.0
-	for _, v := range r.Domain {
-		if v > maxDomainScore {
-			maxDomainScore = v
-		}
-	}
-	if maxDomainScore >= 0.8 {
-		score++
+	// Cap at 100
+	if score > 100 {
+		score = 100
 	}
 
+	return score
+}
+
+// classifyFromScore converts numeric score to label.
+func classifyFromScore(score int) string {
 	switch {
-	case score >= 4:
+	case score >= 50:
 		return "high"
-	case score >= 2:
+	case score >= 25:
 		return "medium"
 	default:
 		return "low"
@@ -135,14 +191,8 @@ func classifyComplexity(r Result) string {
 }
 
 func suggestModel(r Result) string {
-	switch r.Complexity {
-	case "high":
-		return "opus"
-	case "medium":
-		return "sonnet"
-	default:
-		return "haiku"
-	}
+	cfg := config.DefaultConfig()
+	return cfg.RouteByScore(r.ComplexityScore)
 }
 
 // isLetter checks if a rune is a letter (unused but kept for future use).
