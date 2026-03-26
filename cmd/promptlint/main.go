@@ -16,6 +16,7 @@ import (
 	"github.com/mikeshogin/promptlint/pkg/perf"
 	"github.com/mikeshogin/promptlint/pkg/router"
 	"github.com/mikeshogin/promptlint/pkg/server"
+	"github.com/mikeshogin/promptlint/pkg/template"
 	"github.com/mikeshogin/promptlint/pkg/trend"
 	"github.com/mikeshogin/promptlint/pkg/validator"
 )
@@ -43,7 +44,7 @@ func modelExitCode(model string) int {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: promptlint {analyze|validate|route|serve|ab|perf|trend}\n")
+		fmt.Fprintf(os.Stderr, "Usage: promptlint {analyze|validate|route|serve|ab|perf|trend|template}\n")
 		fmt.Fprintf(os.Stderr, "\nanalyze flags:\n")
 		fmt.Fprintf(os.Stderr, "  --output-model   print only model name\n")
 		fmt.Fprintf(os.Stderr, "  --format=json    output format: json (default), brief\n")
@@ -264,8 +265,11 @@ func main() {
 	case "trend":
 		trendCmd(os.Args[2:])
 
+	case "template":
+		templateCmd(os.Args[2:])
+
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: promptlint {analyze|validate|route|serve|ab|perf|trend}\n", cmd)
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: promptlint {analyze|validate|route|serve|ab|perf|trend|template}\n", cmd)
 		os.Exit(1)
 	}
 }
@@ -345,3 +349,41 @@ func trendCmd(args []string) {
 	}
 }
 
+// templateCmd implements the "template" subcommand.
+func templateCmd(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: promptlint template score [--format=json|text] < template.txt\n")
+		os.Exit(ExitError)
+	}
+
+	format := "text"
+	for _, a := range args[1:] {
+		if strings.HasPrefix(a, "--format=") {
+			format = strings.TrimPrefix(a, "--format=")
+		}
+	}
+
+	switch args[0] {
+	case "score":
+		input, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+			os.Exit(ExitError)
+		}
+
+		tmpl := template.ParseTemplate(string(input))
+		ts := template.ScoreTemplate(tmpl)
+
+		switch format {
+		case "json":
+			out, _ := json.MarshalIndent(ts, "", "  ")
+			fmt.Println(string(out))
+		default:
+			fmt.Print(template.FormatScore(ts))
+		}
+
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown template subcommand: %s\nUsage: promptlint template score < template.txt\n", args[0])
+		os.Exit(ExitError)
+	}
+}
