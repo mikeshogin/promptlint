@@ -4,6 +4,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/mikeshogin/promptlint/pkg/config"
 	"github.com/mikeshogin/promptlint/pkg/metrics"
 )
 
@@ -31,8 +32,13 @@ type Result struct {
 	SuggestedModel string `json:"suggested_model"`
 }
 
-// Analyze extracts metrics from a prompt string.
+// Analyze extracts metrics from a prompt string using the default config.
 func Analyze(prompt string) Result {
+	return AnalyzeWithConfig(prompt, config.LoadOrDefault())
+}
+
+// AnalyzeWithConfig extracts metrics from a prompt string using the provided config.
+func AnalyzeWithConfig(prompt string, cfg *config.Config) Result {
 	r := Result{
 		Domain: make(map[string]float64),
 	}
@@ -56,7 +62,7 @@ func Analyze(prompt string) Result {
 	r.Complexity = classifyComplexity(r)
 
 	// Routing
-	r.SuggestedModel = suggestModel(r)
+	r.SuggestedModel = suggestModel(r, cfg)
 
 	return r
 }
@@ -134,7 +140,10 @@ func classifyComplexity(r Result) string {
 	}
 }
 
-func suggestModel(r Result) string {
+func suggestModel(r Result, cfg *config.Config) string {
+	if cfg != nil {
+		return cfg.RouteByComplexity(r.Complexity)
+	}
 	switch r.Complexity {
 	case "high":
 		return "opus"

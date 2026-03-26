@@ -7,27 +7,29 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ModelTier defines a model with its routing parameters.
-type ModelTier struct {
-	Name          string `yaml:"name" json:"name"`
-	Tier          string `yaml:"tier" json:"tier"`
-	CostWeight    int    `yaml:"cost_weight" json:"cost_weight"`
-	MaxComplexity int    `yaml:"max_complexity" json:"max_complexity"`
+// Tier defines a model tier with routing parameters.
+type Tier struct {
+	Name          string `yaml:"name"`
+	MaxComplexity string `yaml:"max_complexity"` // low, medium, high
+	MaxTokens     int    `yaml:"max_tokens"`
+	CostPer1k     float64 `yaml:"cost_per_1k"`
 }
 
 // Config holds promptlint routing configuration.
 type Config struct {
-	Models []ModelTier `yaml:"models" json:"models"`
+	Tiers       []Tier `yaml:"tiers"`
+	DefaultTier string `yaml:"default_tier"`
 }
 
 // DefaultConfig returns the built-in haiku/sonnet/opus configuration.
 func DefaultConfig() *Config {
 	return &Config{
-		Models: []ModelTier{
-			{Name: "haiku", Tier: "low", CostWeight: 1, MaxComplexity: 30},
-			{Name: "sonnet", Tier: "standard", CostWeight: 10, MaxComplexity: 70},
-			{Name: "opus", Tier: "high", CostWeight: 30, MaxComplexity: 100},
+		Tiers: []Tier{
+			{Name: "haiku", MaxComplexity: "low", MaxTokens: 500, CostPer1k: 0.80},
+			{Name: "sonnet", MaxComplexity: "medium", MaxTokens: 5000, CostPer1k: 3.00},
+			{Name: "opus", MaxComplexity: "high", MaxTokens: 100000, CostPer1k: 15.00},
 		},
+		DefaultTier: "sonnet",
 	}
 }
 
@@ -43,25 +45,38 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	if len(cfg.Models) == 0 {
-		return nil, fmt.Errorf("config has no models defined")
+	if len(cfg.Tiers) == 0 {
+		return nil, fmt.Errorf("config has no tiers defined")
 	}
 
 	return &cfg, nil
 }
 
-// RouteByScore returns the cheapest model that can handle the given complexity score.
-// Score is 0-100, matched against MaxComplexity of each tier.
-func (c *Config) RouteByScore(score int) string {
-	// Sort by cost weight ascending (cheapest first)
-	for _, m := range c.Models {
-		if score <= m.MaxComplexity {
-			return m.Name
+// LoadOrDefault loads config from .promptlint.yaml in the current directory.
+// If the file does not exist, it returns DefaultConfig.
+func LoadOrDefault() *Config {
+	cfg, err := Load(".promptlint.yaml")
+	if err != nil {
+		return DefaultConfig()
+	}
+	return cfg
+}
+
+// RouteByComplexity returns the model name for the given complexity level.
+// Complexity is one of: low, medium, high.
+func (c *Config) RouteByComplexity(complexity string) string {
+	for _, t := range c.Tiers {
+		if t.MaxComplexity == complexity {
+			return t.Name
 		}
 	}
-	// Fallback to most expensive model
-	if len(c.Models) > 0 {
-		return c.Models[len(c.Models)-1].Name
+	// Fallback: return default tier if set
+	if c.DefaultTier != "" {
+		return c.DefaultTier
+	}
+	// Last resort fallback
+	if len(c.Tiers) > 0 {
+		return c.Tiers[len(c.Tiers)-1].Name
 	}
 	return "sonnet"
 }
