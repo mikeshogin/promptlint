@@ -7,11 +7,13 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/mikeshogin/promptlint/pkg/abtest"
 	"github.com/mikeshogin/promptlint/pkg/analyzer"
 	"github.com/mikeshogin/promptlint/pkg/config"
+	"github.com/mikeshogin/promptlint/pkg/perf"
 	"github.com/mikeshogin/promptlint/pkg/router"
 	"github.com/mikeshogin/promptlint/pkg/server"
 	"github.com/mikeshogin/promptlint/pkg/validator"
@@ -40,7 +42,7 @@ func modelExitCode(model string) int {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: promptlint {analyze|validate|route|serve|ab}\n")
+		fmt.Fprintf(os.Stderr, "Usage: promptlint {analyze|validate|route|serve|ab|perf}\n")
 		fmt.Fprintf(os.Stderr, "\nanalyze flags:\n")
 		fmt.Fprintf(os.Stderr, "  --output-model   print only model name\n")
 		fmt.Fprintf(os.Stderr, "  --format=json    output format: json (default), brief\n")
@@ -243,8 +245,23 @@ func main() {
 			fmt.Println(string(out))
 		}
 
+	case "perf":
+		iterations := 100
+		for _, arg := range os.Args[2:] {
+			if strings.HasPrefix(arg, "--iterations=") {
+				val := strings.TrimPrefix(arg, "--iterations=")
+				if n, err := strconv.Atoi(val); err == nil && n > 0 {
+					iterations = n
+				}
+			}
+		}
+
+		results := perf.RunAll(iterations)
+		out, _ := json.MarshalIndent(results, "", "  ")
+		fmt.Println(string(out))
+
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: promptlint {analyze|validate|route|serve|ab}\n", cmd)
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: promptlint {analyze|validate|route|serve|ab|perf}\n", cmd)
 		os.Exit(1)
 	}
 }
