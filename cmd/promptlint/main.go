@@ -16,6 +16,7 @@ import (
 	"github.com/mikeshogin/promptlint/pkg/perf"
 	"github.com/mikeshogin/promptlint/pkg/router"
 	"github.com/mikeshogin/promptlint/pkg/server"
+	"github.com/mikeshogin/promptlint/pkg/trend"
 	"github.com/mikeshogin/promptlint/pkg/validator"
 )
 
@@ -42,7 +43,7 @@ func modelExitCode(model string) int {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: promptlint {analyze|validate|route|serve|ab|perf}\n")
+		fmt.Fprintf(os.Stderr, "Usage: promptlint {analyze|validate|route|serve|ab|perf|trend}\n")
 		fmt.Fprintf(os.Stderr, "\nanalyze flags:\n")
 		fmt.Fprintf(os.Stderr, "  --output-model   print only model name\n")
 		fmt.Fprintf(os.Stderr, "  --format=json    output format: json (default), brief\n")
@@ -260,9 +261,87 @@ func main() {
 		out, _ := json.MarshalIndent(results, "", "  ")
 		fmt.Println(string(out))
 
+	case "trend":
+		trendCmd(os.Args[2:])
+
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: promptlint {analyze|validate|route|serve|ab|perf}\n", cmd)
+		fmt.Fprintf(os.Stderr, "Unknown command: %s\nUsage: promptlint {analyze|validate|route|serve|ab|perf|trend}\n", cmd)
 		os.Exit(1)
+	}
+}
+
+// trendCmd implements the "trend" subcommand.
+func trendCmd(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: promptlint trend {record|summary} [--format=json|text]\n")
+		os.Exit(ExitError)
+	}
+
+	format := "text"
+	subArgs := args[1:]
+	for _, a := range subArgs {
+		if strings.HasPrefix(a, "--format=") {
+			format = strings.TrimPrefix(a, "--format=")
+		}
+	}
+
+	log := trend.NewDefault()
+
+	switch args[0] {
+	case "record":
+		input, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+			os.Exit(ExitError)
+		}
+		prompt := string(input)
+		result := analyzer.Analyze(prompt)
+
+		if err := log.Record(prompt, result.Complexity, result.PromptScore.Total, result.SuggestedModel); err != nil {
+			fmt.Fprintf(os.Stderr, "Error recording trend: %v\n", err)
+			os.Exit(ExitError)
+		}
+
+		switch format {
+		case "json":
+			type recordOutput struct {
+				Complexity  string `json:"complexity"`
+				Score       int    `json:"score"`
+				ModelRouted string `json:"model_routed"`
+				Recorded    bool   `json:"recorded"`
+			}
+			out, _ := json.MarshalIndent(recordOutput{
+				Complexity:  result.Complexity,
+				Score:       result.PromptScore.Total,
+				ModelRouted: result.SuggestedModel,
+				Recorded:    true,
+			}, "", "  ")
+			fmt.Println(string(out))
+		default:
+			fmt.Printf("recorded complexity=%s score=%d model=%s\n",
+				result.Complexity, result.PromptScore.Total, result.SuggestedModel)
+		}
+
+	case "summary":
+		summary, err := log.Summary()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading trend log: %v\n", err)
+			os.Exit(ExitError)
+		}
+
+		switch format {
+		case "json":
+			out, _ := json.MarshalIndent(summary, "", "  ")
+			fmt.Println(string(out))
+		default:
+			fmt.Printf("total_entries=%d avg_score=%.2f trend=%s last_7_avg=%.2f previous_7_avg=%.2f\n",
+				summary.TotalEntries, summary.AvgScore, summary.Trend,
+				summary.Last7Avg, summary.Previous7Avg)
+		}
+
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown trend subcommand: %s\nUsage: promptlint trend {record|summary}\n", args[0])
+		os.Exit(ExitError)
 	}
 }
 
